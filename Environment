@@ -1,0 +1,8 @@
+## The port to be exposed on the host
+HOSTPORT="5432"
+
+## The docker image to use
+PGIMAGE="postgres:9.6.4-alpine"
+
+## Optionally override the docker container name
+#NAME=my_db

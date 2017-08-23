@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+set -e
+
+set_environment () {
+	NAME=${1}
+	if [[ ${NAME} =~ ^\.|/ ]]; then # it is a directory
+		cd ${NAME}
+		NAME=$(basename $(pwd))
+		[ -s Environment ] && source Environment
+		HOSTDIR="$(pwd)"
+	fi
+}
+
+case $(basename ${0}) in
+    pgdock) # the script is being called as pgdock
+        case ${1} in
+            start|debug|console) # require a directory
+                if ! [ -d ${2} ]; then
+                    echo "ERROR: cluster root directory argument missing" >&2
+                fi
+                HOSTPORT=${HOSTPORT:-"5432"}
+                PGIMAGE=${PGIMAGE:-"postgres:9.6.4-alpine"}
+				echo "Setting environment based on $2"
+				set_environment ${2}
+                [ -s Environment ] && source Environment
+
+                DOCKERARGS="--rm \
+                    --name ${NAME} \
+                    --hostname ${NAME} \
+                    -v ${HOSTDIR}/data:/var/lib/postgresql/data \
+                    -v ${HOSTDIR}/config:/etc/postgresql \
+                    -p ${HOSTPORT}:5432 \
+                    -e POSTGRES_INITDB_ARGS=--data-checksums"
+
+                PGARGS="--config_file=/etc/postgresql/postgresql.conf \
+                    --port=5432"
+
+                case ${1} in
+                    start) MODE="-d";;
+                    debug) MODE="-it";;
+                    console)
+                        MODE="-it --entrypoint=/bin/bash"
+                        PGARGS="--login"
+                esac
+                
+                echo "Initializing container ${NAME} (${PGIMAGE}) on port ${HOSTPORT}"
+                CMD="docker run ${MODE} ${DOCKERARGS} ${PGIMAGE} ${PGARGS}"
+                echo ${CMD}
+                exec $CMD
+                ;;
+            stop|reload|attach|logs|restart) # just need a container name for these commands
+				set_environment ${2}
+                case ${1} in
+                    stop)
+                        echo "Stopping container ${NAME}"
+                        exec docker kill --signal="INT" ${NAME}
+                        ;;            
+                    reload)
+                        echo "Reloading configuration in container ${NAME}"
+                        exec docker kill --signal="HUP" ${NAME}
+                        ;;
+                    attach)
+                        echo "Attaching to container ${NAME}"
+                        exec docker exec -ti ${NAME} /bin/bash --login
+                        ;;
+                    logs)
+                        echo "Showing logs from container ${NAME}"
+                        exec docker logs -f ${NAME}
+                        ;;
+                    restart)
+                        echo "Restarting container ${NAME}"
+                        exec docker restart ${NAME}
+                        ;;
+                esac
+                ;;
+			install)
+				TARGET=${2}
+				if ! [ -d ${TARGET} ]; then
+					echo "ERROR: Invalid install target directory" >&2
+					exit 1
+				fi
+				SOURCE=${0}
+				[ -h ${SOURCE} ] && SOURCE="$(readlink ${SOURCE})"
+				if ! [ ${SOURCE} -ef ${TARGET}/pgdock ]; then
+					echo "Installing ${TARGET}/pgdock"
+					cp -f ${SOURCE} ${TARGET}/pgdock
+				fi
+				APPS=("pg_archivecleanup" \
+					"pg_basebackup" \
+					"pg_config" \
+					"pg_controldata" \
+					"pg_ctl" \
+					"pg_dump" \
+					"pg_dumpall" \
+					"pg_isready" \
+					"pg_receivexlog" \
+					"pg_recvlogical" \
+					"pg_resetxlog" \
+					"pg_restore" \
+					"pg_rewind" \
+					"pg_standby" \
+					"pg_test_fsync" \
+					"pg_test_timing" \
+					"pg_upgrade" \
+					"pg_xlogdump" \
+					"psql")
+				for APP in ${APPS[@]}
+				do
+					echo "    installing ${2}/${APP}"
+					ln -fs pgdock ${2}/${APP}
+				done
+				echo
+				;;
+            *)
+				cat <<-EOF
+					pgdock is a wrapper script for coordinating postgresql servers in docker
+					and piping pg_xxx utility programs (ie. pg_dump, psql, etc.) into
+					and out of a container running a postgresql databas
+
+					Usage:  pgdock start|stop|debug|console data_dir
+					        pgdock stop|restart|reload|attach|logs data_dir|container
+							pgdock install bin_dir
+					        bin_dir/pg_xxxx container [args]
+					
+					Where:  data_dir:  the directory with database "data" and "config" folders
+					        container: the name of a running container
+							bin_dir:   directory to install script and related links (ie. /usr/local/bin)
+					        pg_xxxx:   one of the standard postgresql utility programs
+					        args:      arguments to supply to pg_xxxx 
+EOF
+                ;;
+        esac
+        ;;
+    *) # the script is being called by something other than pgdock
+		COMMAND=$(basename ${0})
+		set_environment ${1}
+		shift
+		CMD="docker exec -u postgres -ti ${NAME} ${COMMAND} ${@}"
+		echo ${CMD}
+		exec ${CMD}
+        ;;
+esac
