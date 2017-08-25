@@ -92,7 +92,7 @@ EOF
 			for app in $(find ${target} -lname "pgdock"); do
 				rm ${app} && echo "    deleted symlink ${app}"
 			done
-			rm ${target}/pgdock && echo "deleted ${target}/pgdock"
+			[ -e "${target}/pdock" ] && rm ${target}/pgdock && echo "deleted ${target}/pgdock"
 		fi
 		;;
 	postgres)
@@ -133,7 +133,7 @@ EOF
 		}
 
 		initdb () {
-			[ -d ${1} ] || mkdir ${1}
+			[ -d "${1}" ] || mkdir ${1}
 			cd ${1}
 			if [ -s "Environment" ]; then
 				echo "Error: $1/Environment already exists" >&2
@@ -166,9 +166,9 @@ EOF
 			esac
 		done
 
-		! [ ${env_file} ] && [ -s Environment ] && env_file="Environment"
+		! [ ${env_file} ] && [ -s "Environment" ] && env_file="Environment"
 		if [ ${env_file} ]; then
-			[ -d ${env_file} ] && env_file="${env_file}/Environment"
+			[ -d "${env_file}" ] && env_file="${env_file}/Environment"
 			. ${env_file}
 			cd $(dirname ${env_file})
 		fi
