@@ -74,9 +74,17 @@ EOF
 		fi
 		if [ ${install} ]; then
 			echo "Installing ${target}/pgdock"
-			[ ${0} -ef ${target}/pgdock ] || cp ${0} ${target}/pgdock
+			[ ! -e "${target}/pgdock" ] && \
+				cp ${0} "${target}/pgdock" && \
+				echo "installed ${target}/pgdock" \
+			|| \
+				echo "skipping existing ${target}/pgdock" 1>&2
 			for app in ${apps[@]}; do
-				ln -fs pgdock ${target}/${app} && echo "    installed symlink ${target}/${app}"
+				[ ! -e "${target}/${app}" ] && \
+					ln -s pgdock ${target}/${app} && \
+					echo "    installed symlink ${target}/${app}" \
+				|| \
+					echo "    skipping existing ${target}/${app}" 1>&2
 			done
 		fi
 		if [ ${uninstall} ]; then
@@ -84,7 +92,7 @@ EOF
 			for app in $(find ${target} -lname "pgdock"); do
 				rm ${app} && echo "    deleted symlink ${app}"
 			done
-			[ -e ${target}/pgdock ] && rm ${target}/pgdock && echo "deleted ${target}/pgdock"
+			rm ${target}/pgdock && echo "deleted ${target}/pgdock"
 		fi
 		;;
 	postgres)
