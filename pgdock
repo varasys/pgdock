@@ -26,44 +26,66 @@ case $(basename ${0}) in
 			"pg_xlogdump" \
 			"psql")
 
-		show_help () {
+			show_help () {
 			cat <<-EOF
-				pgdock is a wrapper to provide postgresql services via docker containers.
+				pgdock ${version} postgres wrapper
+				    Wrapper script to run postgresql in a docker container
 
-				pgdock depends on symlinks to properly function.
+				Usage:
+					pgdock ( -i | -u ) bin_dir
+					pgdock (-h | -v )
 
-				Run "pgdock -i /usr/local/bin" to install the symlinks (replace /usr/local/bin
-				with your preferred installation location).
+				Options:
+				    -i ) install script and symlinks to bin_dir
+				    -u ) uninstall script and symlinks from bin_dir
+				    -h) show this help
+				    -v) print the version (${version}) to stdout
 
-				pgdock provides wrappers for the following postgresql programs.
+				pgdock works be creating symlinks to the pgdock script. When the
+				script is executed through a symlink it refers to the ${0} environment
+				variable to see what name it was called as.
+
+				pgdock can be called as:
+				- pgdock to install/uninstall symlinks
+				- postgres to create a new container running a postgres server
+				- pgadmin4 to create a new container running pgadmin4
+				- anything else to pass the command through to a running container
+
+				The following postgresql programs will be available from the host
+				after installation.
 EOF
 			echo ${apps[@]} | tr ' ' "\n" | sort | awk '{print "    ", $0}'
+			echo
 		}
-
-		while getopts ":i:h" flag; do
+		while getopts ":i:u:hv" flag; do
 			case ${flag} in
-				i ) target=${OPTARG};;
+				i ) install_target="true";;
+				u ) uninstall_target="true";;
 				h ) show_help; exit 0;;
-				\? ) echo "Invalid option: -${OPTARG}" 1>&2; show_help; exit 1;;
+				\? ) echo "Invalid option: -${OPTARG}" 1>&2; show_help1>&2; exit 1;;
 			esac
 		done
-		if ! [ ${target} ]; then
-			show_help 1>&2
+		shift $((OPTIND-1))
+		if ! [ -d ${1} ]; then
+			echo "Invalid directory" 1>&2
+			show_help1>&2
 			exit 1
 		fi
-		if ! [ -d ${target} ]; then
-			echo "ERROR: Invalid install target directory" >&2
-			show_help 1>&2
-			exit 1
+		if [ ${uninstall_target} ]; then
+				echo "Uninstalling ${1}/pgdock"
+				for app in $(find ${1} -lname "pgdock"); do
+					rm ${app} && echo "    deleted symlink ${app}"
+				done
+				rm -v ${1}/pgdock && echo "deleted ${1}/pgdock"
 		fi
-		echo "Installing ${target}/pgdock"
-		cp ${0} pgdock
-		cd ${target}
-		for app in ${apps[@]}; do
-			echo "    installing ${target}/${app}"
-			ln -fs pgdock ${app}
-		done
-		echo
+		if [ ${install_target} ]; then
+				echo "Installing ${1}/pgdock"
+				! [ ${0} -ef ${1}/pgdock ] && cp ${0} ${target}/pgdock
+				for app in ${apps[@]}; do
+					ln -fs pgdock ${1}/${app} && echo "    installed symlink ${1}/${app}"
+				done
+			fi
+		fi
 		;;
 	postgres)
 		export PGD_IMAGE=${PGD_IMAGE:-"postgres"}
@@ -191,7 +213,6 @@ EOF
 		export PGA_PYTHON_IMAGE_TAG=${PGA_PYTHON_IMAGE_TAG:-"3.5.2-alpine"}
 		export PGA_WHEEL=${PGA_WHEEL:-"pgadmin4-${PGA_IMAGE_TAG}-py2.py3-none-any.whl"}
 		export PGA_WHEEL_URL=${PGA_WHEEL_URL:-"https://ftp.postgresql.org/pub/pgadmin/pgadmin4/v${PGA_IMAGE_TAG}/pip/${PGA_WHEEL}"}
-		export version="v0.1.1"
 
 		show_help () {
 			cat <<-EOF
