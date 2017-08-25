@@ -57,34 +57,34 @@ EOF
 			echo ${apps[@]} | tr ' ' "\n" | sort | awk '{print "    ", $0}'
 			echo
 		}
-		while getopts ":i:u:hv" flag; do
+		while getopts ":iuhv" flag; do
 			case ${flag} in
-				i ) install_target="true";;
-				u ) uninstall_target="true";;
+				i ) install="true";;
+				u ) uninstall="true";;
 				h ) show_help; exit 0;;
 				\? ) echo "Invalid option: -${OPTARG}" 1>&2; show_help1>&2; exit 1;;
 			esac
 		done
 		shift $((OPTIND-1))
-		if ! [ -d ${1} ]; then
+		target=${1}
+		if ! [ -d "${target}" ]; then
 			echo "Invalid directory" 1>&2
-			show_help1>&2
+			show_help 1>&2
 			exit 1
 		fi
-		if [ ${uninstall_target} ]; then
-				echo "Uninstalling ${1}/pgdock"
-				for app in $(find ${1} -lname "pgdock"); do
-					rm ${app} && echo "    deleted symlink ${app}"
-				done
-				rm -v ${1}/pgdock && echo "deleted ${1}/pgdock"
+		if [ ${install} ]; then
+			echo "Installing ${target}/pgdock"
+			[ ${0} -ef ${target}/pgdock ] || cp ${0} ${target}/pgdock
+			for app in ${apps[@]}; do
+				ln -fs pgdock ${target}/${app} && echo "    installed symlink ${target}/${app}"
+			done
 		fi
-		if [ ${install_target} ]; then
-				echo "Installing ${1}/pgdock"
-				! [ ${0} -ef ${1}/pgdock ] && cp ${0} ${target}/pgdock
-				for app in ${apps[@]}; do
-					ln -fs pgdock ${1}/${app} && echo "    installed symlink ${1}/${app}"
-				done
-			fi
+		if [ ${uninstall} ]; then
+			echo "Uninstalling ${target}/pgdock"
+			for app in $(find ${target} -lname "pgdock"); do
+				rm ${app} && echo "    deleted symlink ${app}"
+			done
+			[ -e ${target}/pgdock ] && rm ${target}/pgdock && echo "deleted ${target}/pgdock"
 		fi
 		;;
 	postgres)
