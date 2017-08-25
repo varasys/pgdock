@@ -136,7 +136,7 @@ EOF
 			[ -d "${1}" ] || mkdir ${1}
 			cd ${1}
 			if [ -s "Environment" ]; then
-				echo "Error: $1/Environment already exists" >&2
+				echo "Error: $1/Environment already exists" 1>&2
 				exit 1
 			fi
 			cat > Environment <<-EOF
@@ -153,30 +153,37 @@ EOF
 			ln -s /var/lib/postgresql/data/postgresql.conf conf/
 		}
 
-		while getopts ":cde:hp:i:v" flag; do
+		while getopts ":cdhi:p:v" flag; do
 			case ${flag} in
 				c ) docker_mode="-ti --entrypoint=ash"; docker_cmd="--login";;
 				d ) docker_mode="-d";;
-				e ) env_file=${OPTARG};;
 				h ) show_help; exit 0;;
-				p ) HOSTPORT=${OPTARG};;
+				p ) port_arg=${OPTARG};;
 				i ) initdb ${OPTARG}; exit 0;;
-				v ) echo ${version} && exit 0;;
+				v ) echo ${version}; exit 0;;
 				\? ) echo "Invalid option: ${OPTARG}" 1>&2; show_help; exit 1;;
 			esac
 		done
-
-		! [ ${env_file} ] && [ -s "Environment" ] && env_file="Environment"
-		if [ ${env_file} ]; then
-			[ -d "${env_file}" ] && env_file="${env_file}/Environment"
-			. ${env_file}
-			cd $(dirname ${env_file})
+		shift $((OPTIND-1))
+		env_file=${1}
+		shift
+		if [ -d "${env_file}" ]; then 
+			[ -s "${env_file}/Environment" ] \
+				&& env_file="${env_file}/Environment" \
+				|| echo "Can't source Environment file in: \"${env_file}\"" && exit 1
 		fi
+		if [ ${env_file} ]; then
+			. ${env_file}
+			cd $(dirname "${env_file}")
+		fi
+		[ ! ${PGD_CONTAINER} ] && PGD_CONTAINER=${PGD_CONTAINER:-"${PGD_IMAGE}-${PGD_IMAGE_TAG//./_}"}
 		if  [ ${PGD_HOST_DATA_DIR} ]; then
 			if [ ${PGD_HOST_DATA_DIR} = "." ] || [[ ${PGD_HOST_DATA_DIR} =~ / ]]; then
 				mkdir -p ${PGD_HOST_DATA_DIR} && PGD_HOST_DATA_DIR=$(cd ${PGD_HOST_DATA_DIR}; pwd)
 			fi
 			PGD_HOST_DATA_DIR="-v ${PGD_HOST_DATA_DIR}:/var/lib/postgresql/data"
+		else
+			PGD_HOST_DATA_DIR="-v ${PGD_CONTAINER}:/var/lib/postgresql/data"
 		fi
 		if  [ ${PGD_HOST_CONF_DIR} ]; then
 			if [ ${PGD_HOST_CONF_DIR} = "." ] || [[ ${PGD_HOST_CONF_DIR} =~ / ]]; then
@@ -191,8 +198,7 @@ EOF
 			PGD_HOST_XLOG_DIR="-v ${PGD_HOST_XLOG_DIR}:/var/lib/postgresql/pg_xlog \
 				-e POSTGRES_INITDB_XLOGDIR=/var/lib/postgresql/pg_xlog"
 		fi
-		[ ${PGD_HOST_PORT} ] && PGD_HOST_PORT="-p ${PGD_HOST_PORT}:${PGD_CONTAINER_PORT}"
-		[ ! ${PGD_CONTAINER} ] && PGD_CONTAINER=${PGD_CONTAINER:-"${PGD_IMAGE}-${PGD_IMAGE_TAG//./_}"}
+		[ ${port_arg} ] || [ ${PGD_HOST_PORT} ] && PGD_HOST_PORT="-p ${port_arg:-${PGD_HOST_PORT}}:${PGD_CONTAINER_PORT}"
 		docker_args="--rm \
 			${docker_mode} \
 			--name ${PGD_CONTAINER} \
@@ -206,7 +212,7 @@ EOF
 		postgres_args="--port=${PGD_CONTAINER_PORT}"
 		[ ${PGD_CONTAINER_CONF_FILE} ] && postgres_args="${postgres_args} --config_file=${PGD_CONTAINER_CONF_FILE}"
 
-		cmd="docker run ${docker_args} ${PGD_IMAGE}:${PGD_IMAGE_TAG} ${docker_cmd} ${postgres_args}"
+		cmd="docker run ${docker_args} ${PGD_IMAGE}:${PGD_IMAGE_TAG} ${docker_cmd} ${postgres_args} ${@}"
 		echo ${cmd}
 		exec ${cmd}
 		;;
@@ -316,7 +322,6 @@ EOF
 		;;
 	*) # try and execute the command on the container
 		COMMAND=$(basename ${0})
-		
 		shift
 		[ -t 0 ] && ISTERM="t"
 		exec docker exec -u postgres -${ISTERM}i ${NAME} ${COMMAND} ${@}
