@@ -1,7 +1,40 @@
 #!/usr/bin/env bash
 
-export version="0.1.1"
+export version="v0.1.1"
 
+help_header () {
+	echo "${BOLD}pgdock (${version}) https://github.com/varasys/pgdock${NORMAL}"
+	echo "    Wrapper script for postgres and pgadmin4 running in docker"
+	echo
+}
+
+source_env () {
+	# parse env file supplied as ${1}
+	# if directory check for Environment file in the directory
+	# if a file is found it is sourced and change dir to file directory
+	env_file=${1}
+	case ${env_file} in
+		--) unset env_file;;
+		.)  env_file="./"
+	esac
+	[ ! ${env_file} ] && [ -r "Environment" ] && env_file="./Environment"
+	if [[ "${env_file}" =~ / ]] && [ -d "${env_file}" ] && [ -r "${env_file}/Environment" ]; then
+		env_file="${env_file}/Environment"
+	fi
+	if [[ "${env_file}" =~ / ]]; then
+		if [ -r "${env_file}" ]; then
+			echo "Sourcing environment file: ${env_file}"
+			. ${env_file}
+			cd $(dirname ${env_file})
+		else
+			echo "Invalid environment file: ${env_file}" 1>&2
+			exit 1
+		fi
+	else
+		echo "No environment file supplied"
+	fi
+}
+	
 case $(basename ${0}) in
 	pgdock)
 		apps=("postgres" \
@@ -27,35 +60,39 @@ case $(basename ${0}) in
 			"psql")
 
 			show_help () {
-			cat <<-EOF
-				pgdock ${version} postgres wrapper
-				    Wrapper script to run postgresql in a docker container
+				help_header
+				cat <<-EOF
+					Usage:
+					    pgdock ( -i | -u ) bin_dir
+					    pgdock (-h | -v )
 
-				Usage:
-					pgdock ( -i | -u ) bin_dir
-					pgdock (-h | -v )
+					Options:
+					    -i ) install script and symlinks to bin_dir
+					    -u ) uninstall script and symlinks from bin_dir
+					    -h) show this help
+					    -v) print the version (${version}) to stdout
 
-				Options:
-				    -i ) install script and symlinks to bin_dir
-				    -u ) uninstall script and symlinks from bin_dir
-				    -h) show this help
-				    -v) print the version (${version}) to stdout
+					pgdock works be creating symlinks to the pgdock script. When the
+					script is executed through a symlink it refers to the \${0} environment
+					variable to see what name it was called as.
 
-				pgdock works be creating symlinks to the pgdock script. When the
-				script is executed through a symlink it refers to the ${0} environment
-				variable to see what name it was called as.
+					\`pgdock -i install\` installs the script and symlinks in the
+					bin_dir. The script will act according to the name of the link used
+					to call it.
 
-				pgdock can be called as:
-				- pgdock to install/uninstall symlinks
-				- postgres to create a new container running a postgres server
-				- pgadmin4 to create a new container running pgadmin4
-				- anything else to pass the command through to a running container
+					Type "postgres -h" or "pgadmin4 -h" to get help on running the postgres
+					and pgadmin4 commands.
 
-				The following postgresql programs will be available from the host
-				after installation.
+					All other commands function normally, except require the name of a running
+					container as the first argument. For example, if there is a container named
+					"my_db" running postgres, the command "postgres my_db psql -d database1"
+					will run psql in the container and pass it the command line argument
+					"-d database1".
+
+					pgdock provides the following:
 EOF
-			echo ${apps[@]} | tr ' ' "\n" | sort | awk '{print "    ", $0}'
-			echo
+				echo ${apps[@]} | tr ' ' "\n" | sort | awk '{print "  - ", $0}'
+				echo
 		}
 		while getopts ":iuhv" flag; do
 			case ${flag} in
@@ -74,17 +111,15 @@ EOF
 		fi
 		if [ ${install} ]; then
 			echo "Installing ${target}/pgdock"
-			[ ! -e "${target}/pgdock" ] && \
-				cp ${0} "${target}/pgdock" && \
-				echo "installed ${target}/pgdock" \
-			|| \
-				echo "skipping existing ${target}/pgdock" 1>&2
+			[ ! -e "${target}/pgdock" ] \
+			&& cp ${0} "${target}/pgdock" \
+			&&	echo "installed ${target}/pgdock" \
+			||	echo "skipping existing ${target}/pgdock" 1>&2
 			for app in ${apps[@]}; do
-				[ ! -e "${target}/${app}" ] && \
-					ln -s pgdock ${target}/${app} && \
-					echo "    installed symlink ${target}/${app}" \
-				|| \
-					echo "    skipping existing ${target}/${app}" 1>&2
+				[ ! -e "${target}/${app}" ] \
+				&& ln -s pgdock ${target}/${app} \
+				&& echo "    installed symlink ${target}/${app}" \
+				|| echo "    skipping existing ${target}/${app}" 1>&2
 			done
 		fi
 		if [ ${uninstall} ]; then
@@ -101,28 +136,25 @@ EOF
 		export PGD_CONTAINER_PORT=${PGD_CONTAINER_PORT:-"5432"}
 
 		show_help () {
+			help_header
 			cat <<-EOF
-				pgdock ${version} postgres wrapper
-				    Wrapper script to run postgresql in a docker container
-
 				Usage:
-				    postgres [-cdehpv] [env_dir]
+				    postgres [-acdehpv] [env | --] [pg_options]
 
 				Where:
-				    env_dir is an optional directory containing a file called
-				    Environment with environment variables to configure the
-				    cluster. When run without an Environment file
-				    the container name will be "postgres", data will be persisted
-				    in a docker volume called "postgres", and no host ports will
-				    be exposed.
+				    env is an optional file, or directory containing a file called
+				    Environment, with environment variables to configure the cluster.
+				    When run without an Environment file the container name will be
+				    "${PGD_IMAGE}-${PGD_IMAGE_TAG//./_}", data will be persisted in a docker volume
+				    called "${PGD_IMAGE}-${PGD_IMAGE_TAG//./_}", and no host ports will be exposed.
 
 				Options:
-				    -c) run debug console (load shell instead of postgres)
+				    -a) arguments to pass through to docker (as a single string)
+					-c) run debug console (load shell instead of postgres)
 				    -d) run in background (daemonize)
-				    -e) environment file or directory
 				    -h) show this help
-				    -p port_no) expose postgres on host port_no (ie. -p "0.0.0.0:5050")
-				    -i dir) create dir and initialize as a new pgdock cluster directory
+				    -p) port_no) expose postgres on host port_no (ie. -p "0.0.0.0:5050")
+				    -i) initialize new cluster directory at env
 				    -v) print the version (${version}) to stdout
 
 				The following list shows the available environment variables and
@@ -153,8 +185,9 @@ EOF
 			ln -s /var/lib/postgresql/data/postgresql.conf conf/
 		}
 
-		while getopts ":cdhi:p:v" flag; do
+		while getopts ":a:cdhi:p:v" flag; do
 			case ${flag} in
+				a ) user_args=${OPTARG};;
 				c ) docker_mode="-ti --entrypoint=ash"; docker_cmd="--login";;
 				d ) docker_mode="-d";;
 				h ) show_help; exit 0;;
@@ -164,18 +197,10 @@ EOF
 				\? ) echo "Invalid option: ${OPTARG}" 1>&2; show_help; exit 1;;
 			esac
 		done
-		shift $((OPTIND-1))
-		env_file=${1}
+		arg_count=$((OPTIND-1))
+		[ "${!arg_count}" = "--" ] && shift $((arg_count-1)) || shift ${arg_count}
+		source_env ${1}
 		shift
-		if [ -d "${env_file}" ]; then 
-			[ -s "${env_file}/Environment" ] \
-				&& env_file="${env_file}/Environment" \
-				|| echo "Can't source Environment file in: \"${env_file}\"" && exit 1
-		fi
-		if [ ${env_file} ]; then
-			. ${env_file}
-			cd $(dirname "${env_file}")
-		fi
 		[ ! ${PGD_CONTAINER} ] && PGD_CONTAINER=${PGD_CONTAINER:-"${PGD_IMAGE}-${PGD_IMAGE_TAG//./_}"}
 		if  [ ${PGD_HOST_DATA_DIR} ]; then
 			if [ ${PGD_HOST_DATA_DIR} = "." ] || [[ ${PGD_HOST_DATA_DIR} =~ / ]]; then
@@ -212,15 +237,15 @@ EOF
 		postgres_args="--port=${PGD_CONTAINER_PORT}"
 		[ ${PGD_CONTAINER_CONF_FILE} ] && postgres_args="${postgres_args} --config_file=${PGD_CONTAINER_CONF_FILE}"
 
-		cmd="docker run ${docker_args} ${PGD_IMAGE}:${PGD_IMAGE_TAG} ${docker_cmd} ${postgres_args} ${@}"
+		cmd="docker run ${docker_args} ${user_args} ${PGD_IMAGE}:${PGD_IMAGE_TAG} ${docker_cmd} ${postgres_args} ${@}"
 		echo ${cmd}
 		exec ${cmd}
 		;;
-	PGDdmin4)
+	pgadmin4)
 		export PGA_IMAGE=${PGA_IMAGE:-"pgadmin4"}
 		export PGA_IMAGE_TAG=${PGA_IMAGE_TAG:-"1.6"}
 		export PGA_CONTAINER=${PGA_CONTAINER:-"${PGA_IMAGE}-${PGA_IMAGE_TAG//./_}"}
-		export PGA_HOST_PORT=${PGA_HOST_PORT:-"5050"}
+		export PGA_HOST_PORT=
 		export PGA_CONTAINER_PORT=${PGA_CONTAINER_PORT:-"5050"} TODO implement this
 		export PGA_DATA_DIR=${PGA_DATA_DIR:-${PGA_CONTAINER}}
 		export PGA_PYTHON_IMAGE=${PGA_PYTHON_IMAGE:-"python"}
@@ -229,27 +254,26 @@ EOF
 		export PGA_WHEEL_URL=${PGA_WHEEL_URL:-"https://ftp.postgresql.org/pub/pgadmin/pgadmin4/v${PGA_IMAGE_TAG}/pip/${PGA_WHEEL}"}
 
 		show_help () {
+			help_header
 			cat <<-EOF
-				pgadmin4 ${version}
-					Wrapper script to run pgadmin4 in a docker container
-
 				Usage:
-					pgadmin4 [-bcdfr]
+				    pgadmin4 [-abcdfr] [env]
 
 				Options:
-					-b) build docker image (delete first if existing)
-					-c) run debug console (load shell instead of pgadmin4)
-					-d) run in background (daemonize)
-					-p port_no) expose pgadmin4 on host port_no (ie. -p "0.0.0.0:5050")
-					-r) reset pgadmin4 data (delete pgadmin4 docker volume)
-					-h) show this help
-					-v) print the version (${version}) to stdout
+				    -a) arguments to pass through to docker (as a single string)
+				    -b) build docker image (delete first if existing)
+				    -c) run debug console (load shell instead of pgadmin4)
+				    -d) run in background (daemonize)
+				    -p port_no) expose pgadmin4 on host port_no (ie. -p "0.0.0.0:5050")
+				    -r) reset pgadmin4 data (delete pgadmin4 docker volume)
+				    -h) show this help
+				    -v) print the version (${version}) to stdout
 
 				The script automatically creates a docker image called if it doesn't
 				already exist. Base images and packages are downloaded as needed. If
 
 				On the first run the user will be prompted for an admin user
-				name and passwerd. That information and other configuration
+				name and password. That information and other configuration
 				is persisted in a docker volume called ${PGA_CONTAINER}. Use the
 				-r flag to delete/reset this volume on start.
 
@@ -262,27 +286,25 @@ EOF
 				echo
 		}
 
-		if [ $1 ] && ! [[ $1 =~ ^- ]]; then
-			show_help
-			exit 0
-		fi
-
-		while getopts ":bcdhrv" flag
+		while getopts ":a:bcdhp:rv" flag
 		do
 			case ${flag} in
+				a ) user_args=${OPTARG};;
 				b ) [ $(docker rmi -f ${PGA_IMAGE}:${PGA_IMAGE_TAG}) ] && echo "Deleted ${PGA_IMAGE}:${PGA_IMAGE_TAG} docker image";;
 				c ) docker_mode="-ti --entrypoint=ash"; docker_cmd="--login";;
 				d ) docker_mode="-d";;
 				h ) show_help; exit 0;;
+				p ) PGA_HOST_PORT=${OPTARG};;
 				r ) [ $(docker volume rm -f ${PGA_DATA_DIR}) ] && echo "Deleted pgadmin4 docker volume";;
 				v ) echo ${version} && exit 0;;
 				\? ) echo "Invalid option: $OPTARG" 1>&2; show_help; exit 1;;
 			esac
 		done
-
-		if ! [ $(docker images -q ${PGA_IMAGE}:${PGA_IMAGE_TAG}) ] || [ ${build_args} ]; then
+		shift $((OPTIND-1))
+		source_env ${1}
+		if [ ! $(docker images -q ${PGA_IMAGE}:${PGA_IMAGE_TAG}) ]; then
 			echo "Building ${PGA_IMAGE}:${PGA_IMAGE_TAG} docker image"
-			docker build ${cache_args} -t ${PGA_IMAGE}:${PGA_IMAGE_TAG} - <<-EOF
+			docker build -t ${PGA_IMAGE}:${PGA_IMAGE_TAG} - <<-EOF
 				FROM ${PGA_PYTHON_IMAGE}:${PGA_PYTHON_IMAGE_TAG}
 
 				RUN apk --no-cache --update --upgrade add --virtual .tmp build-base curl
@@ -299,7 +321,6 @@ EOF
 				RUN mkdir /var/lib/pgadmin4
 				RUN chown nobody:nobody /var/lib/pgadmin4
 				VOLUME ${PGA_DATA_DIR}
-				USER nobody
 				ENV HOME /var/lib/pgadmin4
 
 				EXPOSE 5050
@@ -315,15 +336,18 @@ EOF
 		docker_args="--rm \
 					--name=${PGA_CONTAINER} \
 					--hostname=${PGA_CONTAINER} \
-					-v ${PGA_DATA_DIR}:/var/lib/pgadmin4 \
-					-p ${PGA_HOST_PORT}:5050"
+					-v ${PGA_DATA_DIR}:/var/lib/pgadmin4"
+		[ ${PGA_HOST_PORT} ] && docker_args="${docker_args} -p ${PGA_HOST_PORT}:5050"
 
-		exec docker run ${docker_mode:-"-ti"} ${docker_args} ${PGA_IMAGE}:${PGA_IMAGE_TAG} ${docker_cmd}
+		cmd="docker run ${docker_mode:-"-ti"} ${docker_args} ${user_args} ${PGA_IMAGE}:${PGA_IMAGE_TAG} ${docker_cmd}"
+		echo ${cmd}
+		exec ${cmd}
 		;;
 	*) # try and execute the command on the container
-		COMMAND=$(basename ${0})
+		command=$(basename ${0})
+		name=${1}
 		shift
-		[ -t 0 ] && ISTERM="t"
-		exec docker exec -u postgres -${ISTERM}i ${NAME} ${COMMAND} ${@}
+		[ -t 0 ] && isterm="t"
+		exec docker exec -u postgres -${isterm}i ${name} ${command} ${@}
         ;;
 esac
