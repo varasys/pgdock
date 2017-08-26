@@ -53,43 +53,44 @@ case $(basename ${0}) in
 			"pg_test_timing" \
 			"pg_upgrade" \
 			"pg_xlogdump" \
-			"psql")
+			"psql" \
+		)
 
-			print_help () {
-				cat <<-EOF
-					${help_header}
-					
-					Usage:
-					    pgdock ( -i | -u ) bin_dir
-					    pgdock (-h | -v )
+		print_help () {
+			cat <<-EOF
+				${help_header}
+				
+				Usage:
+					pgdock ( -i | -u ) bin_dir
+					pgdock (-h | -v )
 
-					Options:
-					    -i ) install script and symlinks to bin_dir
-					    -u ) uninstall script and symlinks from bin_dir
-					    -h) show this help
-					    -v) print the version (${version}) to stdout
+				Options:
+					-i ) install script and symlinks to bin_dir
+					-u ) uninstall script and symlinks from bin_dir
+					-h) show this help
+					-v) print the version (${version}) to stdout
 
-					pgdock works be creating symlinks to the pgdock script. When the
-					script is executed through a symlink it refers to the \${0} environment
-					variable to see what name it was called as.
+				pgdock works be creating symlinks to the pgdock script. When the
+				script is executed through a symlink it refers to the \${0} environment
+				variable to see what name it was called as.
 
-					\`pgdock -i install\` installs the script and symlinks in the
-					bin_dir. The script will act according to the name of the link used
-					to call it.
+				\`pgdock -i install\` installs the script and symlinks in the
+				bin_dir. The script will act according to the name of the link used
+				to call it.
 
-					Type "postgres -h" or "pgadmin4 -h" to get help on running the postgres
-					and pgadmin4 commands.
+				Type "postgres -h" or "pgadmin4 -h" to get help on running the postgres
+				and pgadmin4 commands.
 
-					All other commands function normally, except require the name of a running
-					container as the first argument. For example, if there is a container named
-					"my_db" running postgres, the command "postgres my_db psql -d database1"
-					will run psql in the container and pass it the command line argument
-					"-d database1".
+				All other commands function normally, except require the name of a running
+				container as the first argument. For example, if there is a container named
+				"my_db" running postgres, the command "postgres my_db psql -d database1"
+				will run psql in the container and pass it the command line argument
+				"-d database1".
 
-					pgdock provides the following:
-				EOF
-				echo ${apps[@]} | tr ' ' "\n" | sort | awk '{print "  - ", $0}'
-				echo
+				pgdock provides the following:
+			EOF
+			echo ${apps[@]} | tr ' ' "\n" | sort | awk '{print "  - ", $0}'
+			echo
 		}
 		while getopts ":iuhv" flag; do
 			case ${flag} in
@@ -128,16 +129,6 @@ case $(basename ${0}) in
 		fi
 		;;
 	pgadmin4)
-		PGA_IMAGE=${PGA_IMAGE:-"pgadmin4"}
-		PGA_IMAGE_TAG=${PGA_IMAGE_TAG:-"1.6"}
-		PGA_CONTAINER=${PGA_CONTAINER:-"${PGA_IMAGE}-${PGA_IMAGE_TAG//./_}"}
-		PGA_CONTAINER_PORT=${PGA_CONTAINER_PORT:-"5050"}
-		PGA_DATA_DIR=${PGA_DATA_DIR:-${PGA_CONTAINER}}
-		PGA_PYTHON_IMAGE=${PGA_PYTHON_IMAGE:-"python"}
-		PGA_PYTHON_IMAGE_TAG=${PGA_PYTHON_IMAGE_TAG:-"3.5.2-alpine"}
-		PGA_WHEEL=${PGA_WHEEL:-"pgadmin4-${PGA_IMAGE_TAG}-py2.py3-none-any.whl"}
-		PGA_WHEEL_URL=${PGA_WHEEL_URL:-"https://ftp.postgresql.org/pub/pgadmin/pgadmin4/v${PGA_IMAGE_TAG}/pip/${PGA_WHEEL}"}
-
 		print_help () {
 			[ "${1}" ] && echo "Error: ${1}" && echo
 			cat <<-EOF
@@ -175,25 +166,35 @@ case $(basename ${0}) in
 			echo
 		}
 
-		while getopts ":a:bcdhp:rv" flag
-		do
+		while getopts ":a:cdhp:rv" flag; do
 			case ${flag} in
 				a ) docker_args=${OPTARG};;
-				b ) build_args="--no-cache";;
 				c ) docker_mode="-ti --entrypoint=ash"; docker_cmd="--login";;
 				d ) docker_mode="-d";;
-				h ) print_help; exit 0;;
-				p ) PGA_HOST_PORT=${OPTARG};;
-				r ) [ $(docker volume rm -f ${PGA_DATA_DIR}) ] && echo "Deleted pgadmin4 docker volume";;
-				v ) echo ${version} && exit 0;;
+				h ) print_help="true";;
+				p ) host_port=${OPTARG};;
+				r ) reset="true";;
+				v ) echo ${version}; exit 0;;
 				\? ) print_help "Invalid option: -$OPTARG"; exit 1;
 			esac
 		done
 		shift $((OPTIND-1))
 		source_env ${1}
+		PGA_IMAGE=${PGA_IMAGE:-"pgadmin4"}
+		PGA_IMAGE_TAG=${PGA_IMAGE_TAG:-"1.6"}
+		PGA_CONTAINER=${PGA_CONTAINER:-"${PGA_IMAGE}-${PGA_IMAGE_TAG//./_}"}
+		PGA_DATA_DIR=${PGA_DATA_DIR:-${PGA_CONTAINER}}
+		PGA_PYTHON_IMAGE=${PGA_PYTHON_IMAGE:-"python"}
+		PGA_PYTHON_IMAGE_TAG=${PGA_PYTHON_IMAGE_TAG:-"3.5.2-alpine"}
+		PGA_WHEEL=${PGA_WHEEL:-"pgadmin4-${PGA_IMAGE_TAG}-py2.py3-none-any.whl"}
+		PGA_WHEEL_URL=${PGA_WHEEL_URL:-"https://ftp.postgresql.org/pub/pgadmin/pgadmin4/v${PGA_IMAGE_TAG}/pip/${PGA_WHEEL}"}
+		PGA_DOCKER_ARGS=${PGA_DOCKER_ARGS:-"--rm"}
+		PGA_HOST_PORT=${host_port:-${PGA_HOST_PORT}}
+		[ ${print_help} ] && { print_help; exit 0; }
+		[ ${reset} ] && docker volume rm -f "${PGA_DATA_DIR}" > /dev/null && echo "Deleted ${PGA_DATA_DIR} docker volume" 1>&2
 		if [ ! $(docker images -q ${PGA_IMAGE}:${PGA_IMAGE_TAG}) ]; then
 			echo "Building ${PGA_IMAGE}:${PGA_IMAGE_TAG} docker image"
-			docker build -t ${PGA_IMAGE}:${PGA_IMAGE_TAG} - <<-EOF
+			docker build ${build_args} -t ${PGA_IMAGE}:${PGA_IMAGE_TAG} - <<-EOF
 				FROM ${PGA_PYTHON_IMAGE}:${PGA_PYTHON_IMAGE_TAG}
 
 				RUN apk --no-cache --update --upgrade add --virtual .tmp build-base curl
@@ -221,15 +222,14 @@ case $(basename ${0}) in
 			docker images ${PGA_IMAGE}:${PGA_IMAGE_TAG}
 			echo
 		fi
-
-		PGA_DOCKER_ARGS="--rm \
-					--name=${PGA_CONTAINER} \
-					--hostname=${PGA_CONTAINER} \
-					-v ${PGA_DATA_DIR}:/var/lib/pgadmin4 \
-					${PGA_DOCKER_ARGS}"
-		[ ${PGA_HOST_PORT} ] && docker_args="${docker_args} -p ${PGA_HOST_PORT}:5050"
-
-		cmd="docker run ${docker_mode:-"-ti"} ${PGA_DOCKER_ARGS} ${user_args} ${PGA_IMAGE}:${PGA_IMAGE_TAG} ${docker_cmd}"
+		PGA_DOCKER_ARGS="${PGA_DOCKER_ARGS} \
+						 ${docker_mode:-"-ti"} \
+						 ${PGA_CONTAINER:+"--name=${PGA_CONTAINER}"} \
+						 ${PGA_CONTAINER:+"--hostname=${PGA_CONTAINER}"} \
+						 ${PGA_DATA_DIR:+"-v ${PGA_DATA_DIR}:/var/lib/pgadmin4"} \
+						 ${PGA_HOST_PORT:+"-p ${PGA_HOST_PORT}:5050"} \
+						 ${docker_args}"
+		cmd="docker run ${PGA_DOCKER_ARGS} ${PGA_IMAGE}:${PGA_IMAGE_TAG} ${docker_cmd:-${@}}"
 		echo ${cmd}
 		exec ${cmd}
 		;;
