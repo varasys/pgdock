@@ -23,15 +23,13 @@ source_env () {
 	fi
 	if [[ "${env_file}" =~ / ]]; then
 		if [ -r "${env_file}" ]; then
-			echo "Sourcing environment file: ${env_file}"
+			echo "Sourcing environment file: ${env_file}" >&2
 			. ${env_file}
 			cd $(dirname ${env_file})
 		else
 			echo "Invalid environment file: ${env_file}" 1>&2
 			exit 1
 		fi
-	else
-		echo "No environment file supplied"
 	fi
 }
 	
@@ -139,7 +137,7 @@ EOF
 			help_header
 			cat <<-EOF
 				Usage:
-				    postgres [-acdehpv] [env | --] [pg_options]
+				    postgres [-acdehpv] [-u user] [env | --] [pg_options]
 
 				Where:
 				    env is an optional file, or directory containing a file called
@@ -149,13 +147,14 @@ EOF
 				    called "${PGD_IMAGE}-${PGD_IMAGE_TAG//./_}", and no host ports will be exposed.
 
 				Options:
-				    -a) arguments to pass through to docker (as a single string)
-					-c) run debug console (load shell instead of postgres)
-				    -d) run in background (daemonize)
-				    -h) show this help
-				    -p) port_no) expose postgres on host port_no (ie. -p "0.0.0.0:5050")
-				    -i) initialize new cluster directory at env
-				    -v) print the version (${version}) to stdout
+				    -a ) arguments to pass through to docker (as a single string)
+					-c ) run debug console (load shell instead of postgres)
+				    -d ) run in background (daemonize)
+				    -h ) show this help
+				    -p ) port_no) expose postgres on host port_no (ie. -p "0.0.0.0:5050")
+				    -i ) initialize new cluster directory at env
+					-u user ) pass "-u user" argument to docker
+				    -v ) print the version (${version}) to stdout
 
 				The following list shows the available environment variables and
 				their default values.
@@ -185,7 +184,7 @@ EOF
 			ln -s /var/lib/postgresql/data/postgresql.conf conf/
 		}
 
-		while getopts ":a:cdhi:p:v" flag; do
+		while getopts ":a:cdhi:p:u:v" flag; do
 			case ${flag} in
 				a ) user_args=${OPTARG};;
 				c ) docker_mode="-ti --entrypoint=ash"; docker_cmd="--login";;
@@ -193,6 +192,7 @@ EOF
 				h ) show_help; exit 0;;
 				p ) port_arg=${OPTARG};;
 				i ) initdb ${OPTARG}; exit 0;;
+				u ) pg_user="-u ${OPTARG}";;
 				v ) echo ${version}; exit 0;;
 				\? ) echo "Invalid option: ${OPTARG}" 1>&2; show_help; exit 1;;
 			esac
@@ -237,7 +237,7 @@ EOF
 		postgres_args="--port=${PGD_CONTAINER_PORT}"
 		[ ${PGD_CONTAINER_CONF_FILE} ] && postgres_args="${postgres_args} --config_file=${PGD_CONTAINER_CONF_FILE}"
 
-		cmd="docker run ${docker_args} ${user_args} ${PGD_IMAGE}:${PGD_IMAGE_TAG} ${docker_cmd} ${postgres_args} ${@}"
+		cmd="docker run ${pg_user} ${docker_args} ${user_args} ${PGD_IMAGE}:${PGD_IMAGE_TAG} ${docker_cmd} ${postgres_args} ${@}"
 		echo ${cmd}
 		exec ${cmd}
 		;;
@@ -345,9 +345,52 @@ EOF
 		;;
 	*) # try and execute the command on the container
 		command=$(basename ${0})
-		name=${1}
+		show_help () {
+				help_header
+				cat <<-EOF
+					Usage:
+					    ${command} -a -h -u -v env args
+					
+					Where:
+					    env: is a container name or path to an Environment file or directory
+					    args: argument to pass to ${command} in the container
+
+					Options:
+					    -a ) arguments to pass to docker (as quoted string)
+					    -h ) show this help (help for pgdock, not ${command})
+					    -u user ) set docker "-u user" flag
+					    -v ) print the version (${version}) to stdout
+
+					This is the help for the pgdock wrapper script to pass commands to a
+					container running postgresql. To get help for ${command} pass the help
+					flag for ${command} in the args argument (ie. ${command} env --help).
+
+					Execute \`pgdock -h\` for more information about pgdock and Environment files.
+EOF
+		}
+
+		pg_user="-u postgres"
+		while getopts ":a:dhu:v" flag
+		do
+			case ${flag} in
+				a ) user_args=${OPTARG};;
+				h ) show_help; exit 0;;
+				u ) pg_user="-u ${OPTARG}";;
+				v ) echo ${version} && exit 0;;
+				\? ) echo "Invalid option: $OPTARG" 1>&2; show_help; exit 1;;
+			esac
+		done
+		arg_count=$((OPTIND-1))
+		[ "${!arg_count}" = "--" ] && shift $((arg_count-1)) || shift ${arg_count}
+		source_env ${1}
 		shift
+		if [ ! ${PGD_CONTAINER:=${env_file}} ]; then
+			echo "Missing container or environment error" 1>&2
+			exit 1
+		fi
 		[ -t 0 ] && isterm="t"
-		exec docker exec -u postgres -${isterm}i ${name} ${command} ${@}
+		cmd="docker exec ${pg_user} -${isterm}i ${user_args} ${PGD_CONTAINER} ${command} ${@}"
+		echo ${cmd}
+		exec ${cmd}
         ;;
 esac
