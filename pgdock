@@ -20,7 +20,7 @@ source_env () {
 		env_file="${env_file}/Environment"
 	fi
 	if [[ "${env_file}" =~ / ]]; then
-		if [ -r "${env_file}" ]; then
+		if [ -f "${env_file}" ]; then
 			echo "Sourcing environment file: ${env_file}" >&2
 			. ${env_file}
 			cd $(dirname ${env_file})
@@ -141,7 +141,7 @@ case $(basename ${0}) in
 
 				Options:
 				    -a docker_args ) pass "docker_args" string to docker
-				    -b ) build docker image (delete first if existing)
+				    -b ) build docker image (even if it exists)
 				    -c ) run debug console (load shell instead of pgadmin4)
 				    -d ) run in background (daemonize)
 				    -h ) print this help to stdout
@@ -161,14 +161,16 @@ case $(basename ${0}) in
 				their default values. In theory, these environment variables can be
 				changed to change the pgadmin4 and python versions used to build the
 				docker image.
+
 			EOF
-			cat ${0} | grep -E -o 'PGA_[A-Z_]+' | sort | uniq | sed 's/.*/    &=${&}/'
+			(set -o posix ; set) | grep -E 'PGA_[A-Z_]+' | sort
 			echo
 		}
 
-		while getopts ":a:cdhp:rv" flag; do
+		while getopts ":a:bcdhp:rv" flag; do
 			case ${flag} in
 				a ) docker_args=${OPTARG};;
+				b ) force_build="true";;
 				c ) docker_mode="-ti --entrypoint=ash"; docker_cmd="--login";;
 				d ) docker_mode="-d";;
 				h ) print_help="true";;
@@ -180,10 +182,15 @@ case $(basename ${0}) in
 		done
 		shift $((OPTIND-1))
 		source_env ${1}
+		shift
 		PGA_IMAGE=${PGA_IMAGE:-"pgadmin4"}
 		PGA_IMAGE_TAG=${PGA_IMAGE_TAG:-"1.6"}
 		PGA_CONTAINER=${PGA_CONTAINER:-"${PGA_IMAGE}-${PGA_IMAGE_TAG//./_}"}
 		PGA_DATA_DIR=${PGA_DATA_DIR:-${PGA_CONTAINER}}
+		if [[ "${PGA_DATA_DIR}" =~ / ]]; then
+			PGA_DATA_DIR="$(cd $(dirname ${PGA_DATA_DIR}) && pwd)/$(basename ${PGA_DATA_DIR})"
+		fi
+		echo "PGA_DATA_DIR=${PGA_DATA_DIR}"
 		PGA_PYTHON_IMAGE=${PGA_PYTHON_IMAGE:-"python"}
 		PGA_PYTHON_IMAGE_TAG=${PGA_PYTHON_IMAGE_TAG:-"3.5.2-alpine"}
 		PGA_WHEEL=${PGA_WHEEL:-"pgadmin4-${PGA_IMAGE_TAG}-py2.py3-none-any.whl"}
@@ -192,7 +199,7 @@ case $(basename ${0}) in
 		PGA_HOST_PORT=${host_port:-${PGA_HOST_PORT}}
 		[ ${print_help} ] && { print_help; exit 0; }
 		[ ${reset} ] && docker volume rm -f "${PGA_DATA_DIR}" > /dev/null && echo "Deleted ${PGA_DATA_DIR} docker volume" 1>&2
-		if [ ! $(docker images -q ${PGA_IMAGE}:${PGA_IMAGE_TAG}) ]; then
+		if [ ${force_build} ] || [ ! $(docker images -q ${PGA_IMAGE}:${PGA_IMAGE_TAG}) ]; then
 			echo "Building ${PGA_IMAGE}:${PGA_IMAGE_TAG} docker image"
 			docker build ${build_args} -t ${PGA_IMAGE}:${PGA_IMAGE_TAG} - <<-EOF
 				FROM ${PGA_PYTHON_IMAGE}:${PGA_PYTHON_IMAGE_TAG}
@@ -204,7 +211,7 @@ case $(basename ${0}) in
 				RUN pip install ${PGA_WHEEL} && rm ${PGA_WHEEL}
 				RUN apk del --purge .tmp
 
-				WORKDIR /usr/local/lib/python3.5/site-${PGA_WHEEL}/pgadmin4
+				WORKDIR /usr/local/lib/python3.5/site-packages/pgadmin4
 				RUN echo "DEFAULT_SERVER = '0.0.0.0'" >> config_local.py
 				RUN echo "DATA_DIR = '/var/lib/pgadmin4'" >> config_local.py
 
