@@ -1,5 +1,5 @@
 data/
 *.bak
-config/ssl/*.crt
-config/ssl/*.pem
-config/ssl/*.key
+*.crt
+*.pem
+*.key
