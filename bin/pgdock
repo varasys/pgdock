@@ -19,16 +19,17 @@ source_env () {
 		--) unset env_file;;
 		.)  env_file="./"
 	esac
-	[ ! ${env_file} ] && [ -r "Environment" ] && env_file="./Environment"
-	if [[ "${env_file}" =~ / ]] && [ -d "${env_file}" ] && [ -r "${env_file}/Environment" ]; then
-		env_file="${env_file}/Environment"
-	fi
-	if [[ "${env_file}" =~ / ]]; then
+
+	if [ "${env_file}" ]; then
 		if [ -f "${env_file}" ]; then
-			try "Sourcing environment file: ${env_file}" . ${env_file}
-			try "changing to database directory" cd $(dirname ${env_file})
+			try "changing to ${env_file}" cd $(dirname ${env_file})
+			PGD_CONTAINER=$(basename $(pwd))
+			try "sourcing environment file" . ${env_file}
+		elif [ -d "${env_file}" ]; then
+			try "changing to ${env_file}" cd ${env_file}
+			PGD_CONTAINER=$(basename $(pwd))
 		else
-			die "Invalid environment file: ${env_file}"
+			die "could not read environment file at ${env_file}"
 		fi
 	fi
 }
@@ -238,12 +239,12 @@ else
 							${entrypoint} \
 							${PGA_DOCKER_ARGS}"
 			command="docker run ${PGA_DOCKER_ARGS} ${PGA_IMAGE}:${PGA_IMAGE_TAG} ${cmd}"
-			exec try "executing: ${command}" ${command}
+			try "executing: ${command}" exec ${command}
 			;;
 		postgres)
-			export PGD_IMAGE=${PGD_IMAGE:-"postgres"}
-			export PGD_IMAGE_TAG=${PGD_IMAGE_TAG:-"9.6.4-alpine"}
-			export PGD_CONTAINER_PORT=${PGD_CONTAINER_PORT:-"5432"}
+			yell "PGD_IMAGE: ${PGD_IMAGE:=postgres}"
+			yell "PGD_IMAGE_TAG: ${PGD_IMAGE_TAG:=9.6.4-alpine}"
+			yell "PGD_CONTAINER_PORT: ${PGD_CONTAINER_PORT:=5432}"
 
 			print_help () {
 				cat <<-EOF
@@ -278,13 +279,13 @@ else
 
 			while getopts ":a:cdhp:s:u:v" flag; do
 				case ${flag} in
-					a ) yell "using PGD_DOCKER_ARGS: ${OPTARG}"; PGD_DOCKER_ARGS="${OPTARG}";;
+					a ) yell "PGD_DOCKER_ARGS: ${OPTARG}"; PGD_DOCKER_ARGS="${OPTARG}";;
 					c ) yell "starting debug console"; entrypoint="--entrypoint=ash"; cmd="--login";;
 					d ) yell "starting as daemon"; daemonize="-d"; unset remove; unset terminal;;
 					h ) print_help; exit 0;;
-					p ) yell "setting PGD_HOST_PORT: ${OPTARG}"; PGD_HOST_PORT=${OPTARG};;
-					s ) yell "using PGD_PASSWORD: ${OPTARG}"; PGD_PASSWORD="${OPTARG}";;
-					u ) yell "using PGD_USER: ${OPTARG}"; PGD_USER="${OPTARG}";;
+					p ) yell "PGD_HOST_PORT: ${OPTARG}"; PGD_HOST_PORT=${OPTARG};;
+					s ) yell "PGD_PASSWORD: ${OPTARG}"; PGD_PASSWORD="${OPTARG}";;
+					u ) yell "PGD_USER: ${OPTARG}"; PGD_USER="${OPTARG}";;
 					v ) yell ${version}; exit 0;;
 					\? ) die "Invalid option: ${OPTARG}";;
 				esac
@@ -332,7 +333,7 @@ else
 				${PGD_DOCKER_ARGS} \
 				-e POSTGRES_INITDB_ARGS=--data-checksums"
 			command="docker run ${PGD_DOCKER_ARGS} ${PGD_IMAGE}:${PGD_IMAGE_TAG} ${cmd}"
-			try "executing: ${command}" exec ${command}	
+			try "executing: ${command}" exec ${command}
 			;;
 		*) # try and execute the command on the container
 			command=$(basename ${0})
