@@ -1,29 +1,20 @@
 # pgdock
 
-pgdock is a bash script to start and stop docker containers running the official postgresql docker image, and a set of links that can be installed on the docker host machine to forward docker commands to the postgres servers running in the various containers. Its design is very much inspired by the way multi-cluster postgresql installations are handled on ubuntu.
+pgdock is a bash script to:  
+- start docker containers running postgresql  
+- proxy commands from the host the the containers  
+- build and run a docker image to run pgadmin4
 
-Use git to download pgdock:
+## Installation
 
-    git clone github.com/varasys/pgdock
+To install pgdock, download it from github and run the install command with the installation directory as an argument.
 
-pgdock was created to provide a streamlined command line interface to manage running multiple postgresql containers. The following examples show how to create a new database (my_db) and manipulate it.
+```bash
+git clone https://github.com/varasys/pgdock
+./pgdock/bin/pgdock install /usr/local/bin
+```
 
-
-
-	# EXAMPLES FOR CONTROLLING SERVER CONTAINER
-	
-	./pgdock install /usr/local/bin  # install pgdock
-	pgdock start ./my_db             # initialize new db (daemon)
-	pgdock debug ./my_db             # initialize new db (foreground)
-	pgdock stop my_db                # stop server
-	pgdock start ./my_db             # start server (daemon)
-	pgdock attach my_db              # attach console to running server
-	pgdock reload my_db              # reload server configuration
-	pgdock restart by_db             # restart server container
-	pgdock debug ./my_db             # start server (foreground)
-	pgdock console ./my_db           # debug the server (foreground)
-
-pgdock also allows piping the following postgres commands to/from the host terminal:
+The installation command above will copy the pgdock script to the installation directory and create the following symlinks in the installation directory pointing to the pgdock script:
 
 - pg_archivecleanup
 - pg_basebackup
@@ -43,59 +34,78 @@ pgdock also allows piping the following postgres commands to/from the host termi
 - pg_test_timing
 - pg_upgrade
 - pg_xlogdump
+- pgadmin4
+- postgresql
 - psql
 
-These commands work from the host exactly the same way they work inside the container, except that when called from the host, the second argument is the container name as shown in the following examples:
+## Usage
 
-    # EXAMPLES FOR RUNNING POSTGRES UTILITIES
-    
-    psql my_db                # run psql on my_db
-    psql my_db -l             # run spql on my_db and list databases
-    # copy database cluster from "my_db" container to "your_db" container
-    pg_dumpall my_db | psql your_db
+The `pgdock` script should only be run directly for installing (or uninstalling) the script and symlinks.
 
-pgdock was specifically written to promote standardization across all postgres uses, so it does not have any options other than the following which can be set as environment variables:
+During normal operation the script should be called using one of the symlinks, and the behavior of the script will depend on which symlink was used to call it (the script inspects the $0 argument to see what name it was called as).
 
-- HOSTPORT - change the host port that the server is exposed on (default=5432)
-- PGIMAGE - change the postgresql docker image tag (default=postgresql:9.6.4-alpine)
-- NAME - (optional) specify the container name (instead of using the root directory name)
+### postgres
 
-## Directory Structure
-pgdock requires a specific directory structure to run properly.
+To run a new postgresql container:
 
-Each postgresql cluster should have a root directory `data_dir` with the following:
+```bash
+postgres [-d] [-a docker_args] [-s secret] [-u user] [-p host_port] [env | --] [pg_options]
+postgres -c [-a docker_args] [env]
+postgres ( -h | -v )
+```
 
-- Environment - an environment file that is sourced at the beginning of the pgdock script, and is used to set the host port and postgresql image, and optionally set the container name
-- config - this directory will be mounted in the container at /etc/postgresql and should contain postgresql.conf, pg_hba.conf and pg_ident.conf files (see the config section)
-- data - this is the postgresql data directory (including the pg_xlog directory)
+Where:
 
-The "data" directory will be created automatically if it does not exist. The "Environment" file and "config" directory are not automatically created, but can be created by cloning the pgdata git repository.
+- env is an optional file, or directory containing a file called Environment, with environment variables to configure the cluster  
+- -a ) arguments to pass through to docker (as a single string)  
+- -c ) run debug console (load shell instead of postgres)  
+- -d ) run in background (daemonize)  
+- -h ) show this help  
+- -p host_port) expose postgres on host port_no (ie. -p "0.0.0.0:5050")  
+- -s secret) initial password for new database  
+- -u user ) run database as user (must be in container password file)  
+- -v ) print the version to stdout  
 
-In this document `data_dir` means this top level directory (and not the `data` subdirectory with the postgresql data).
+When run without an Environment file the container name will be
+					    "${PGD_IMAGE}-${PGD_IMAGE_TAG//./_}", data will be persisted in a docker volume
+					    called "${PGD_IMAGE}-${PGD_IMAGE_TAG//./_}", and no host ports will be exposed.
 
-Where `data_dir` is required as an argument to `pgdock` it should be an absolute path starting with a slash, or a relative path starting with a dot, or a relative directory ending with a slash. pgdock looks for the presence of either a dot or a slash to determine whether a `data_dir` was provided or a container name.
+### pgadmin4
 
-Where `container` is required as an argument to `pgdock` it can either be the name of the running container, or a path to the `data_dir`. If a path is provide (ie. it starts with a dot or includes a slash), and the path is to a directory containing a file called "Environment" that file will be sourced and the "NAME" environment variable is used as the container name. If no "Environment" file is found, or the "Environment" file does not define the "NAME" variable, the name of the `data_dir` is used as the container name.
+To run pgadmin4 (including building the docker image if it does not exist):
 
-## Configuration
-pgdock uses the "Environment" file in the "data_dir" to determine which host port to expose the database through, which postgresql image to use, and optionally set the docker container name used to run the server.
+```bash
+pgadmin4 [-a docker_args] [-bdr] [-p host_port] [env]
+pgadmin4 ( -h | -v )
+```
 
-pgdock passes the `--config_file=/etc/postgresql/postgresql.conf` command line option when starting postgres. The path to this config file on the host is "data_dir/config/postgresql.conf" and the default config in the git repository includes "include_dir = 'conf.d'", so all files in the "config/conf.d" that end in ".conf" will also be included in the configuration.
+Where:  
 
+- -a docker_args ) pass "docker_args" string to docker
+- -b ) build docker image (even if it exists)
+- -c ) run debug console (load shell instead of pgadmin4)
+- -d ) run in background (daemonize)
+- -h ) print this help to stdout
+- -p host_port ) expose pgadmin4 on host port "host_port" (ie. -p "0.0.0.0:5050")
+- -r ) reset pgadmin4 data (delete pgadmin4 docker volume)
+- -v ) print the version (${version}) to stdout
 
-## How it Works
-Each time a bash script is executed, the command used to execute the script is set as environment variable `$0` within the script. If a symlink (ie. `ls -s pg_dump pgdata`) is created to the pgdock script with a different name (ie. `pg_dump`), the name passed in the `$0` variable will be the name of the symlink (ie. `pg_dump` instead of `pgdock`).
+The script automatically builds a docker image for pgadmin4 if it doesn't
+already exist. Base images and packages are downloaded as needed.
+On the first run the user will be prompted for an admin user
+name and password. That information and other configuration
+is persisted in a docker volume called ${PGA_CONTAINER}. Use the
+-r flag to delete/reset this volume on start.
 
-When called as `pgdock install target_dir` the script will copy itself to the `target_dir` directory and creates a symlink in `target_dir` to the `pgdock` script for each postgresql utility program (ie. `pg_dump`, `psql`, etc.).
+### Utilities
 
-When run, the pgdock script inspects variable `$0` and if it is called as `pgdock` it operates on the container, but if it is called as something else it executes the command (whatever is in the `$0` variable) within the container with any additional arguments supplied on the command line. It attaches to the container as a terminal so data can be piped into or out of the container (ie. `pg_dumpall my_db | psql your_db` to pipe a backup from my_db to restore in your_db using `psql`).
+The other commands work from the host exactly the same way they work inside the container, except that when called from the host, the second argument is the container name as shown in the following examples:
 
-Before each command is run, the full docker command is echoed to the terminal for information.
+```bash
+# EXAMPLES FOR RUNNING POSTGRES UTILITIES
 
-## Starting a Container
-pgdock uses the official postgres docker images with no modifications (so there is no Docker file). The entrypoint in the container runs a script called "docker-entrypoint.sh" which runs `initdb` to initialize a new database cluster if the `data_dir/data` directory is empty, or runs postgres if the data directory is not empty.
-
-Running pgdock with the `console` sub-command starts a container with the port exposed and volumes mounted, but runs `bash --login` instead of the "docker-entrypoint.sh" script. This can be useful for troubleshooting.
-
-## About Volumes
-pgdock does not use docker volumes, and bind mounts directories directly instead (ie. the "data" and "config" directories). This so that the postgresql data is not obfuscated behind dockers volume storage drivers and can be backed-up directly.
+psql my_db                # run psql on my_db
+psql my_db -l             # run spql on my_db and list databases
+# copy database cluster from "my_db" container to "your_db" container
+pg_dumpall my_db | psql your_db
+```
